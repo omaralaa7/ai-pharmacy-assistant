@@ -2,10 +2,12 @@
 Pharmacist Dashboard (Streamlit Application)
 AI-Driven Insurance Assistant (Diploma Project Prototype)
 
-Clean prototype based 100% on real Egyptian insurance policy data:
+Clean prototype running 100% on real Egyptian insurance policy data:
   1. AI Chatbot — natural language queries about insurance policies
   2. Policy Directory — browse all company policy categories
-  3. Dispensing Quick-Check — verify exclusions and dispensing rules
+  3. Dispensing Quick-Check — verify exclusions and requirements
+  4. Approval Compliance Check — rule compliance & approval likelihood score
+  5. PA Letter Generator — generate official prior authorization letters
 
 Run locally with: streamlit run app.py
 """
@@ -17,6 +19,7 @@ import html
 import re
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 
 # Add project root to path
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,6 +31,10 @@ from models.chatbot_engine import (
     get_company_policies,
     get_all_categories,
     check_exclusions,
+)
+from models.real_approval_engine import (
+    evaluate_real_approval,
+    generate_real_pa_letter,
 )
 
 # ---------------------------------------------------------------------------
@@ -134,6 +141,10 @@ st.markdown("""
         text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.3rem;
     }
 
+    .risk-low { background: linear-gradient(135deg, #059669, #10b981); color: white; padding: 0.5rem 1.2rem; border-radius: 20px; font-weight: 600; display: inline-block; }
+    .risk-medium { background: linear-gradient(135deg, #d97706, #f59e0b); color: white; padding: 0.5rem 1.2rem; border-radius: 20px; font-weight: 600; display: inline-block; }
+    .risk-high { background: linear-gradient(135deg, #dc2626, #ef4444); color: white; padding: 0.5rem 1.2rem; border-radius: 20px; font-weight: 600; display: inline-block; }
+
     .chat-bubble-user {
         background: rgba(0, 212, 170, 0.12);
         border: 1px solid rgba(0, 212, 170, 0.3);
@@ -178,6 +189,14 @@ st.markdown("""
         text-align: right;
     }
 
+    .pa-letter {
+        background: #1a1f2e; border: 1px solid rgba(0, 212, 170, 0.15);
+        border-radius: 12px; padding: 1.5rem;
+        font-family: 'Courier New', monospace; font-size: 0.9rem;
+        white-space: pre-wrap; line-height: 1.8;
+        direction: rtl; text-align: right;
+    }
+
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     html { scroll-behavior: smooth; }
@@ -198,6 +217,8 @@ with st.sidebar:
             "💬 AI Chatbot",
             "📖 Policy Directory",
             "⚡ Dispensing Check",
+            "🏥 Approval Check",
+            "📝 PA Letter Generator",
         ],
         label_visibility="collapsed",
     )
@@ -427,3 +448,135 @@ elif page == "⚡ Dispensing Check":
 
         elif check_btn:
             st.warning("يرجى اختيار شركة التأمين وإدخال اسم الصنف للفحص.")
+
+
+# ===========================================================================
+# PAGE 4: APPROVAL CHECK (Real Data Rules Compliance)
+# ===========================================================================
+elif page == "🏥 Approval Check":
+    st.markdown("""
+    <div class="main-header">
+        <h1>🏥 Approval & Compliance Check</h1>
+        <p>تقييم نسبة قبول المطالبة والتوافق مع القواعد الحقيقية لشركة التأمين</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    companies = get_all_companies()
+    company_options = {f"{c['name']}": c["key"] for c in companies}
+
+    col_form, col_result = st.columns([1, 1.2])
+
+    with col_form:
+        st.markdown('<div class="section-header">📋 بيانات الروشتة والمطالبة</div>', unsafe_allow_html=True)
+
+        eval_company_label = st.selectbox(
+            "شركة التأمين / الجهة الضامنة",
+            options=list(company_options.keys()),
+            key="eval_company",
+        )
+
+        eval_item = st.text_input(
+            "اسم المستحضر المطلوب",
+            value="Clexane 4000",
+            key="eval_item",
+        )
+
+        eval_days = st.select_slider(
+            "فترة الصرف المطلوبة (بالأيام)",
+            options=[7, 14, 21, 30, 60, 90],
+            value=30,
+            key="eval_days",
+        )
+
+        has_stamp = st.checkbox("الروشتة مختومة بختم الطبيب / المستشفى معتمد", value=True, key="eval_stamp")
+        has_diag = st.checkbox("التشخيص الطبي مدون على الروشتة", value=True, key="eval_diag")
+
+        eval_btn = st.button("🔮 تقييم نسبة القبول", type="primary", use_container_width=True)
+
+    with col_result:
+        if eval_btn and eval_company_label:
+            comp_key = company_options[eval_company_label]
+            eval_res = evaluate_real_approval(comp_key, eval_item, eval_days, has_stamp, has_diag)
+
+            prob = eval_res["score"]
+            score_pct = eval_res["score_percent"]
+            risk = eval_res["risk_level"]
+
+            color = {"LOW": "#10b981", "MEDIUM": "#f59e0b", "HIGH": "#ef4444"}[risk]
+            risk_class = {"LOW": "risk-low", "MEDIUM": "risk-medium", "HIGH": "risk-high"}[risk]
+
+            st.markdown(f'<div style="text-align:center;padding:1rem;"><div style="font-size:3.5rem;font-weight:700;color:{color};">{score_pct}%</div><div style="font-size:0.85rem;color:rgba(250,250,250,0.6);text-transform:uppercase;">نسبة التوافق وقبول الصرف</div><div style="margin-top:0.8rem;"><span class="{risk_class}">{risk} RISK</span></div></div>', unsafe_allow_html=True)
+
+            fig_g = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=score_pct,
+                number={"suffix": "%", "font": {"size": 36}},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": color, "thickness": 0.3},
+                    "bgcolor": "#1a1f2e",
+                    "steps": [
+                        {"range": [0, 50], "color": "rgba(239,68,68,0.15)"},
+                        {"range": [50, 75], "color": "rgba(245,158,11,0.15)"},
+                        {"range": [75, 100], "color": "rgba(16,185,129,0.15)"},
+                    ],
+                },
+            ))
+            fig_g.update_layout(height=200, margin=dict(l=30, r=30, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#fafafa"})
+            st.plotly_chart(fig_g, use_container_width=True)
+
+            if eval_res["risk_factors"]:
+                st.markdown('<div class="section-header">⚡ تحليلات المخاطر وعدم التوافق</div>', unsafe_allow_html=True)
+                for factor in eval_res["risk_factors"]:
+                    st.markdown(f'<div class="checklist-item">{factor}</div>', unsafe_allow_html=True)
+
+            st.markdown(f'<div class="status-box" dir="rtl" style="text-align:right;">{eval_res["recommendation"]}</div>', unsafe_allow_html=True)
+
+
+# ===========================================================================
+# PAGE 5: PA LETTER GENERATOR (Real Data Contacts & Procedures)
+# ===========================================================================
+elif page == "📝 PA Letter Generator":
+    st.markdown("""
+    <div class="main-header">
+        <h1>📝 PA Letter Generator</h1>
+        <p>صياغة خطاب رسمي لطلب الموافقة المسبقة باستعمال أرقام وبيانات الشركة الحقيقية</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    companies = get_all_companies()
+    company_options = {f"{c['name']}": c["key"] for c in companies}
+
+    col_pa1, col_pa2 = st.columns([1, 1.2])
+
+    with col_pa1:
+        st.markdown('<div class="section-header">📋 بيانات الخطاب</div>', unsafe_allow_html=True)
+
+        pa_company_label = st.selectbox(
+            "شركة التأمين / الجهة الضامنة",
+            options=list(company_options.keys()),
+            key="pa_company",
+        )
+
+        patient_name = st.text_input("اسم المريض", value="أحمد محمد علي", key="pa_patient")
+        pa_item = st.text_input("اسم المستحضر / العلاج", value="Clexane 4000 IU", key="pa_item")
+        pa_diag = st.text_input("التشخيص الطبي", value="متابعة حمل خطِر / تجلطات", key="pa_diag")
+        pharmacist_notes = st.text_area("ملاحظات الصيدلي / حالة طارئة", value="يرجى الموافقة لضرورة الحالة الطبية العاجلة للمريضة.", key="pa_notes")
+
+        gen_btn = st.button("📄 توليد الخطاب الرسمى", type="primary", use_container_width=True)
+
+    with col_pa2:
+        if gen_btn and pa_company_label:
+            comp_key = company_options[pa_company_label]
+            letter_text = generate_real_pa_letter(comp_key, patient_name, pa_item, pa_diag, pharmacist_notes)
+
+            st.markdown('<div class="section-header">📄 نص الخطاب المولد</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="pa-letter">{html.escape(letter_text)}</div>', unsafe_allow_html=True)
+
+            st.download_button(
+                "⬇️ تحميل الخطاب (.txt)",
+                data=letter_text,
+                file_name=f"PA_Letter_{patient_name}.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
