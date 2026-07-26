@@ -1,0 +1,369 @@
+"""
+Phase 2 — NLP Chatbot Engine (TF-IDF + Arabic Preprocessing)
+AI-Driven Insurance Chatbot (Diploma Project)
+
+This module provides intelligent search over the Egyptian insurance knowledge base.
+A pharmacist can ask questions in Arabic or English and get instant, structured answers.
+
+How it works (for diploma defense explanation):
+  1. PREPROCESSING: Normalize Arabic text (remove diacritics, normalize alef/ya)
+  2. INDEXING: Build a TF-IDF matrix over all policy text chunks
+  3. QUERY: When a pharmacist asks a question:
+     a. Try to extract a company name and/or category from the query
+     b. If found, do a direct knowledge base lookup (exact/fuzzy match)
+     c. If not found, use TF-IDF cosine similarity to find best-matching chunks
+  4. RESPONSE: Format the retrieved information into a clear, structured answer
+
+Key NLP concepts used:
+  - TF-IDF (Term Frequency - Inverse Document Frequency): weights words by how
+    important they are to a specific document vs. the entire corpus
+  - Cosine Similarity: measures how similar two text vectors are (0 = unrelated, 1 = identical)
+  - Arabic NLP: diacritics removal, alef/ya normalization, stop word filtering
+  - Fuzzy String Matching: handles typos and partial name matches
+"""
+
+import os
+import re
+import json
+import sys
+from difflib import SequenceMatcher
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# ---------------------------------------------------------------------------
+# Load knowledge base
+# ---------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+KB_PATH = os.path.join(PROJECT_DIR, "data", "insurance_knowledge_base.json")
+
+_knowledge_base = None
+_tfidf_vectorizer = None
+_tfidf_matrix = None
+_chunk_index = []  # maps matrix row -> (company_key, category)
+
+# Arabic stop words (common words that don't carry meaning)
+ARABIC_STOP_WORDS = {
+    "في", "من", "على", "إلى", "الى", "عن", "مع", "هذا", "هذه", "ذلك", "تلك",
+    "التي", "الذي", "التى", "الذى", "هو", "هي", "هى", "نحن", "هم", "أن", "ان",
+    "كان", "كل", "لم", "لن", "إذا", "اذا", "حتى", "حتي", "بعد", "قبل", "بين",
+    "أو", "او", "لا", "ما", "و", "ف", "ب", "ل", "ك", "يتم", "يجب", "لابد",
+    "أي", "اي", "فى", "الا", "إلا", "عند", "منذ", "ثم", "أما", "اما",
+}
+
+# Category keywords for intent detection
+CATEGORY_KEYWORDS = {
+    "نماذج الصرف": ["نماذج", "نموذج", "صرف", "روشته", "روشتة", "dispensing", "form", "forms", "prescription"],
+    "المحظورات": ["محظور", "محظورات", "ممنوع", "ممنوعات", "حظر", "excluded", "prohibited", "exclusion", "ban", "banned"],
+    "التحمل": ["تحمل", "copay", "co-pay", "deductible", "copayment"],
+    "التشخيص": ["تشخيص", "diagnosis", "تشخيصات"],
+    "صلاحية النموذج": ["صلاحية", "صلاحيه", "validity", "مدة النموذج", "form validity"],
+    "صورة البطاقة": ["بطاقة", "بطاقه", "هوية", "هويه", "id", "national id", "identity"],
+    "صورة الكارنية": ["كارنية", "كارنيه", "كارنيت", "card", "insurance card", "membership"],
+    "الختم / إمضاء العميل": ["ختم", "إمضاء", "امضاء", "توقيع", "stamp", "signature", "sign"],
+    "أقصى مدة للصرف": ["مدة", "مده", "أقصى", "اقصي", "اقصى", "duration", "maximum", "max duration", "dispensing period"],
+    "الحد الأقصى": ["حد", "أقصى", "اقصى", "اقصي", "limit", "maximum limit", "max", "financial limit"],
+    "التواصل للموافقات": ["تواصل", "موافقة", "موافقات", "تليفون", "هاتف", "رقم", "contact", "phone", "approval", "call"],
+    "لينك الاونلاين سيستم": ["لينك", "اونلاين", "سيستم", "رابط", "online", "system", "link", "portal", "website"],
+    "البدائل": ["بديل", "بدائل", "alternative", "substitut", "generic"],
+    "ملاحظات": ["ملاحظات", "ملاحظه", "ملاحظة", "notes", "note", "additional"],
+}
+
+
+def _load_kb():
+    """Load the knowledge base from JSON."""
+    global _knowledge_base
+    if _knowledge_base is not None:
+        return
+    with open(KB_PATH, "r", encoding="utf-8") as f:
+        _knowledge_base = json.load(f)
+
+
+def normalize_arabic(text):
+    """
+    Normalize Arabic text for better matching.
+
+    Steps:
+    1. Remove diacritics (tashkeel) — e.g., فَتْحَة → فتحة
+    2. Normalize alef variants — أ إ آ → ا
+    3. Normalize ta marbuta — ة → ه (for matching, not display)
+    4. Normalize ya — ى → ي
+    5. Lowercase Latin characters
+    """
+    if not text:
+        return ""
+    # Remove diacritics (Unicode range for Arabic diacritical marks)
+    text = re.sub(r"[\u064B-\u0652\u0670]", "", text)
+    # Normalize alef variants
+    text = re.sub(r"[أإآ]", "ا", text)
+    # Normalize ta marbuta
+    text = text.replace("ة", "ه")
+    # Normalize ya
+    text = text.replace("ى", "ي")
+    # Lowercase
+    text = text.lower()
+    return text
+
+
+def _build_tfidf_index():
+    """Build TF-IDF index over all knowledge base chunks."""
+    global _tfidf_vectorizer, _tfidf_matrix, _chunk_index
+    if _tfidf_matrix is not None:
+        return
+
+    _load_kb()
+    documents = []
+    _chunk_index = []
+
+    for company_key, company_data in _knowledge_base.items():
+        for category, policy in company_data["policies"].items():
+            # Combine all searchable text for this chunk
+            chunk_text = " ".join([
+                company_data["company_name"],
+                company_data.get("company_name_ar", ""),
+                company_data.get("company_name_en", ""),
+                category,
+                policy.get("category_en", ""),
+                policy.get("details", ""),
+                policy.get("notes", ""),
+            ])
+            # Normalize for matching
+            chunk_text = normalize_arabic(chunk_text)
+            documents.append(chunk_text)
+            _chunk_index.append((company_key, category))
+
+    # Build TF-IDF matrix
+    _tfidf_vectorizer = TfidfVectorizer(
+        max_features=5000,
+        ngram_range=(1, 2),  # unigrams + bigrams for better phrase matching
+        stop_words=list(ARABIC_STOP_WORDS),
+    )
+    _tfidf_matrix = _tfidf_vectorizer.fit_transform(documents)
+
+
+def _fuzzy_match_company(query):
+    """Find the best-matching company name using fuzzy matching."""
+    _load_kb()
+    query_norm = normalize_arabic(query)
+
+    best_match = None
+    best_score = 0.0
+
+    for company_key, company_data in _knowledge_base.items():
+        # Check against all name variants
+        candidates = [
+            normalize_arabic(company_data["company_name"]),
+            normalize_arabic(company_data.get("company_name_ar", "")),
+            normalize_arabic(company_data.get("company_name_en", "")),
+        ]
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+
+            # Exact substring match gets high bonus
+            if query_norm in candidate or candidate in query_norm:
+                score = 0.9
+            else:
+                score = SequenceMatcher(None, query_norm, candidate).ratio()
+
+            if score > best_score:
+                best_score = score
+                best_match = company_key
+
+    return best_match, best_score
+
+
+def _detect_category(query):
+    """Detect which policy category the user is asking about."""
+    query_norm = normalize_arabic(query)
+
+    best_category = None
+    best_score = 0
+
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        score = 0
+        for keyword in keywords:
+            if normalize_arabic(keyword) in query_norm:
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_category = category
+
+    return best_category if best_score > 0 else None
+
+
+def get_all_companies():
+    """Return a list of all company names for the dropdown."""
+    _load_kb()
+    return sorted([
+        {
+            "key": key,
+            "name": data["company_name"],
+            "name_ar": data.get("company_name_ar", ""),
+            "name_en": data.get("company_name_en", ""),
+            "id": data.get("company_id", ""),
+        }
+        for key, data in _knowledge_base.items()
+    ], key=lambda x: x["name"])
+
+
+def get_company_policies(company_key):
+    """Return all policies for a specific company."""
+    _load_kb()
+    if company_key not in _knowledge_base:
+        return None
+    return _knowledge_base[company_key]
+
+
+def get_all_categories():
+    """Return all unique policy categories."""
+    return list(CATEGORY_KEYWORDS.keys())
+
+
+def check_exclusions(company_key, item_name):
+    """
+    Check if an item is in a company's exclusion list (المحظورات).
+
+    Returns a dict with:
+      - is_excluded (bool)
+      - matched_text (str): the part of the exclusion list that matched
+      - full_exclusions (str): the complete exclusion text
+    """
+    _load_kb()
+    if company_key not in _knowledge_base:
+        return {"is_excluded": False, "error": "Company not found"}
+
+    policies = _knowledge_base[company_key]["policies"]
+    if "المحظورات" not in policies:
+        return {"is_excluded": False, "message": "No exclusion list found for this company"}
+
+    exclusion_text = policies["المحظورات"].get("details", "")
+    item_norm = normalize_arabic(item_name)
+    exclusion_norm = normalize_arabic(exclusion_text)
+
+    is_excluded = item_norm in exclusion_norm
+
+    return {
+        "is_excluded": is_excluded,
+        "item_searched": item_name,
+        "full_exclusions": exclusion_text,
+        "matched_text": item_name if is_excluded else "",
+    }
+
+
+def chat_query(user_question):
+    """
+    Main chatbot function — process a natural language question and return
+    a structured answer from the knowledge base.
+
+    Parameters
+    ----------
+    user_question : str
+        The pharmacist's question in Arabic or English.
+
+    Returns
+    -------
+    dict with:
+        - found (bool): whether a relevant answer was found
+        - company_name (str): the matched company
+        - category (str): the matched policy category
+        - answer (str): the policy details text
+        - notes (str): any additional notes
+        - confidence (float): 0.0-1.0 confidence score
+        - method (str): "direct", "fuzzy", or "tfidf"
+    """
+    _load_kb()
+    _build_tfidf_index()
+
+    if not user_question or not user_question.strip():
+        return {"found": False, "error": "Please enter a question."}
+
+    query = user_question.strip()
+
+    # --- Step 1: Try to detect company name ---
+    company_match, company_score = _fuzzy_match_company(query)
+
+    # --- Step 2: Try to detect category ---
+    category_match = _detect_category(query)
+
+    # --- Case A: Both company and category detected (direct lookup) ---
+    if company_match and company_score >= 0.4 and category_match:
+        company_data = _knowledge_base[company_match]
+        if category_match in company_data["policies"]:
+            policy = company_data["policies"][category_match]
+            return {
+                "found": True,
+                "company_name": company_data["company_name"],
+                "category": category_match,
+                "category_en": policy.get("category_en", ""),
+                "answer": policy.get("details", "No details available."),
+                "notes": policy.get("notes", ""),
+                "confidence": min(company_score + 0.2, 1.0),
+                "method": "direct" if company_score >= 0.7 else "fuzzy",
+            }
+
+    # --- Case B: Company detected but no category (show all policies) ---
+    if company_match and company_score >= 0.4 and not category_match:
+        company_data = _knowledge_base[company_match]
+        # Return a summary of all categories
+        summary_lines = []
+        for cat, pol in company_data["policies"].items():
+            detail_preview = pol.get("details", "")[:100]
+            summary_lines.append(f"• {cat}: {detail_preview}...")
+
+        return {
+            "found": True,
+            "company_name": company_data["company_name"],
+            "category": "all",
+            "category_en": "All Policies",
+            "answer": "\n\n".join(summary_lines),
+            "notes": f"Found {len(company_data['policies'])} policy categories. Ask about a specific one for details.",
+            "confidence": company_score,
+            "method": "direct" if company_score >= 0.7 else "fuzzy",
+        }
+
+    # --- Case C: Category detected but no company ---
+    if category_match and (not company_match or company_score < 0.4):
+        return {
+            "found": False,
+            "category": category_match,
+            "error": f"I understand you're asking about '{category_match}', but I need to know which insurance company. Please mention the company name.",
+        }
+
+    # --- Case D: Fall back to TF-IDF semantic search ---
+    query_norm = normalize_arabic(query)
+    query_vec = _tfidf_vectorizer.transform([query_norm])
+    similarities = cosine_similarity(query_vec, _tfidf_matrix).flatten()
+
+    # Get top 3 results
+    top_indices = similarities.argsort()[-3:][::-1]
+    results = []
+
+    for idx in top_indices:
+        if similarities[idx] < 0.05:
+            continue
+        comp_key, cat = _chunk_index[idx]
+        comp_data = _knowledge_base[comp_key]
+        policy = comp_data["policies"][cat]
+        results.append({
+            "company_name": comp_data["company_name"],
+            "category": cat,
+            "category_en": policy.get("category_en", ""),
+            "answer": policy.get("details", ""),
+            "notes": policy.get("notes", ""),
+            "confidence": float(similarities[idx]),
+        })
+
+    if results:
+        best = results[0]
+        best["found"] = True
+        best["method"] = "tfidf"
+        best["other_results"] = results[1:] if len(results) > 1 else []
+        return best
+
+    return {
+        "found": False,
+        "error": "I couldn't find a matching answer. Try asking about a specific insurance company and topic, for example:\n• 'ما هي محظورات يونايتد؟'\n• 'أقصى مدة صرف لشركة ويبكو'\n• 'What are the stamp requirements for GlobeMed?'",
+    }

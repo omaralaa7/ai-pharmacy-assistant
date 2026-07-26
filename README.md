@@ -1,91 +1,122 @@
-# 💊 AI-Driven Prior Authorization Assistant
+# 💊 AI-Driven Insurance Chatbot for Pharmacies
 
-An AI-powered proof-of-concept system that helps pharmacists navigate insurance prior authorization (PA) workflows using machine learning and NLP.
+### مساعد التأمين الذكي للصيدليات
 
-> **Diploma Project** — Built with synthetic data to demonstrate the full AI pipeline (prediction, NLP interpretation, workflow assistance) with a clear integration path for real claims data.
+An AI-powered chatbot that provides Egyptian pharmacists with fast, accurate, and interactive access to medical insurance dispensing policies using NLP and Machine Learning.
+
+> **Diploma Project** — Built with real Egyptian insurance data (77 companies, 766 policy rules) and a TF-IDF based natural language search engine.
+
+---
 
 ## 🎯 What It Does
 
-| Feature | Description |
-|---------|-------------|
-| **Approval Prediction** | ML model predicts the likelihood of insurance claim approval based on patient, drug, and insurance data |
-| **Rejection Interpreter** | Translates cryptic rejection codes into plain-language explanations with step-by-step action checklists |
-| **PA Letter Generator** | Auto-generates prior authorization justification letter drafts |
-| **Analytics Dashboard** | Visualizes approval rates, rejection patterns, and claim trends |
-| **Model Performance** | Displays ML evaluation metrics (accuracy, F1, confusion matrix, feature importance) |
+| Module | Description |
+|--------|-------------|
+| **💬 AI Chatbot** | Ask questions in Arabic or English about any insurance company's policies |
+| **📖 Policy Directory** | Browse all 77 companies and 14 policy categories |
+| **⚡ Dispensing Check** | Verify exclusions, stamp requirements, max duration, and co-pay rules |
+| **📊 Analytics** | Visual insights across all Egyptian insurance providers |
+| **🏥 Approval Prediction** | ML model predicts claim approval likelihood (synthetic data demo) |
+| **🔍 Rejection Assistant** | Interprets rejection codes into actionable checklists + PA letter generator |
+| **🧪 Model Performance** | ML evaluation metrics (accuracy, F1, confusion matrix, feature importance) |
+
+---
+
+## 📊 Real Dataset
+
+| Metric | Value |
+|--------|-------|
+| Insurance Companies | 77 |
+| Policy Rules | 766 |
+| Rule Categories | 14 |
+| Data Source | Real Egyptian insurance dispensing rules |
+
+### Policy Categories Covered
+نماذج الصرف، المحظورات، التحمل، التشخيص، صلاحية النموذج، صورة البطاقة، صورة الكارنية، الختم/إمضاء العميل، أقصى مدة للصرف، الحد الأقصى، التواصل للموافقات، لينك الأونلاين سيستم، البدائل، ملاحظات
+
+---
 
 ## 🛠️ Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
 | Frontend / Dashboard | Streamlit |
-| ML Model | XGBoost / Random Forest (scikit-learn) |
-| NLP Interpreter | Rule-based + fuzzy string matching |
+| NLP Search Engine | TF-IDF + Cosine Similarity (scikit-learn) |
+| Arabic NLP | Custom preprocessing (diacritics, alef/ya normalization) |
+| ML Model | XGBoost / Random Forest |
 | Data Visualization | Plotly |
-| Data | Synthetic (pandas, Faker) |
+| Knowledge Base | JSON (from Excel via openpyxl) |
+
+---
 
 ## 📁 Project Structure
 
 ```
 AI Pharmacy/
-├── app.py                      # Main Streamlit dashboard (run this)
-├── requirements.txt            # Python dependencies
-├── generate_dataset.py         # Synthetic data generator
+├── app.py                              # Main Streamlit dashboard (7 pages)
+├── requirements.txt                    # Python dependencies
+├── README.md                           # This file
+├── generate_dataset.py                 # Synthetic data generator
+├── نظم صرف شركات التأمين-2.xlsx        # Real Egyptian insurance dataset
 ├── data/
-│   ├── claims.csv              # 2,500 synthetic insurance claims
-│   ├── insurance_rules.csv     # 60 insurance rules (5 insurers × 12 drugs)
-│   └── rejection_codes.csv     # 6 rejection codes with explanations
+│   ├── process_excel.py                # Excel → JSON knowledge base
+│   ├── insurance_knowledge_base.json   # Structured knowledge base (77 companies)
+│   ├── claims.csv                      # 2,500 synthetic claims
+│   ├── insurance_rules.csv             # Synthetic insurance rules
+│   └── rejection_codes.csv             # Rejection codes lookup
 ├── models/
-│   ├── train_model.py          # ML model training script
-│   ├── predict.py              # Prediction inference module
-│   ├── rejection_interpreter.py # Rejection code interpreter
-│   └── saved/                  # Trained model files (generated)
-│       ├── approval_model.joblib
-│       ├── encoders.joblib
-│       └── model_metadata.json
+│   ├── chatbot_engine.py               # TF-IDF NLP chatbot engine
+│   ├── predict.py                      # ML approval prediction
+│   ├── rejection_interpreter.py        # Rejection code interpreter
+│   ├── train_model.py                  # ML model training script
+│   └── saved/                          # Trained model files
+├── notebooks/                          # Jupyter notebooks (Colab-ready)
+│   ├── 01_data_exploration.ipynb       # Data analysis & knowledge base
+│   ├── 02_nlp_chatbot_development.ipynb # NLP engine development
+│   └── 03_evaluation_and_results.ipynb  # System evaluation & KPIs
 └── .streamlit/
-    └── config.toml             # Dashboard theme configuration
+    └── config.toml                     # Dashboard theme
 ```
+
+---
 
 ## 🚀 Quick Start
 
-### 1. Install Dependencies
 ```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Train the ML Model
-```bash
+# 2. Process the Excel dataset (if knowledge base doesn't exist)
+python data/process_excel.py
+
+# 3. Train the ML model (if not already trained)
 python models/train_model.py
-```
-This trains the approval prediction model and saves it to `models/saved/`.
 
-### 3. Run the Dashboard
-```bash
+# 4. Launch the dashboard
 streamlit run app.py
 ```
-The dashboard will open at `http://localhost:8501`.
 
-## 📊 Dashboard Pages
+Dashboard runs at: **http://localhost:8501**
 
-1. **🏥 New Claim Check** — Enter patient/drug/insurance details → get approval probability + risk analysis
-2. **🔍 Rejection Assistant** — Look up rejection codes → get explanations + action checklists + generate PA letters
-3. **📊 Analytics Dashboard** — Charts showing approval rates by insurer, drug, age, and rejection patterns
-4. **🧪 Model Performance** — ML evaluation metrics for academic validation (confusion matrix, feature importance)
+---
 
 ## 🧠 How the AI Works
 
-### Predictive Approval Engine
-- **Algorithm:** XGBoost (gradient boosting) with Random Forest fallback
-- **Features:** Patient age, drug, insurance, diagnosis code, step therapy status, lab results, days supply
-- **Output:** Approval probability (0-100%) with risk level (LOW/MEDIUM/HIGH)
-- **Class Imbalance:** Handled via `scale_pos_weight` (XGBoost) or `class_weight='balanced'` (RF)
+### NLP Chatbot (TF-IDF Search)
+1. **Arabic Preprocessing:** Remove diacritics, normalize alef/ya/ta-marbuta
+2. **TF-IDF Indexing:** Build weighted term vectors over all policy text
+3. **Multi-Strategy Retrieval:**
+   - Direct lookup (exact company + category match)
+   - Fuzzy matching (handles typos and partial names)
+   - TF-IDF cosine similarity (semantic search fallback)
+4. **Bilingual:** Supports Arabic and English queries
 
-### Rejection Code Interpreter
-- **Approach:** Rule-based lookup table + fuzzy string matching
-- **Exact match:** Code → explanation + checklist (100% accuracy)
-- **Fuzzy match:** Free-text description → best-matching code (SequenceMatcher)
+### ML Approval Prediction
+- Algorithm: Random Forest (92.4% accuracy on synthetic data)
+- Features: Patient age, drug, insurance, diagnosis, step therapy, lab results, days supply
+
+---
 
 ## ⚠️ Disclaimer
 
-This is a **proof-of-concept** built on synthetic data for educational/academic purposes. It does not process real patient data and is not intended for clinical use. Real-world deployment would require HIPAA compliance, real claims data, and PMS integration.
+This is a **diploma project / proof-of-concept**. The insurance policy data is used for educational purposes. Always verify dispensing rules with the insurance company directly before dispensing medications.
