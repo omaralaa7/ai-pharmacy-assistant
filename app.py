@@ -317,11 +317,11 @@ if page == "💬 AI Chatbot":
         st.markdown(f'<div class="chat-bubble-user">🧑‍⚕️ {q}</div>', unsafe_allow_html=True)
 
         if r.get("found"):
-            method_badge = {"direct": "✅ مطابقة مباشرة", "fuzzy": "🔗 مطابقة تقريبية", "tfidf": "🔎 بحث ذكي"}.get(r.get("method", ""), "")
-            confidence = r.get("confidence", 0)
+            # Only show company & category header if it's an actual policy (not a greeting)
+            if r.get("category") != "ترحيب":
+                header_text = f"🏢 <strong>{r.get('company_name', '')}</strong> — {r.get('category', '')}"
+                st.markdown(f'<div style="direction: rtl; text-align: right; color: #00D4AA; font-weight: 600; font-size: 0.95rem; margin-bottom: 0.3rem;">{header_text}</div>', unsafe_allow_html=True)
 
-            header_text = f"<strong>{r.get('company_name', '')}</strong> — {r.get('category', '')}"
-            st.markdown(f'<div style="direction: rtl; text-align: right; color: #00D4AA; font-weight: 600; margin-bottom: 0.4rem;">{method_badge} (درجة الثقة: {confidence:.0%}) | {header_text}</div>', unsafe_allow_html=True)
             st.markdown(format_arabic_html(r.get("answer", "")), unsafe_allow_html=True)
 
             if r.get("notes"):
