@@ -564,9 +564,9 @@ elif page == "📝 PA Letter Generator":
             key="pa_company",
         )
 
-        patient_name = st.text_input("اسم المريض", value="أحمد محمد علي", key="pa_patient")
+        patient_name = st.text_input("اسم المريض/المريضة", value="سارة محمود السيد", key="pa_patient")
         pa_item = st.text_input("اسم المستحضر / العلاج", value="Clexane 4000 IU", key="pa_item")
-        pa_diag = st.text_input("التشخيص الطبي", value="متابعة حمل خطِر / تجلطات", key="pa_diag")
+        pa_diag = st.text_input("التشخيص الطبي", value="متابعة حمل خطِر / الوقاية من التجلطات", key="pa_diag")
         pharmacist_notes = st.text_area("ملاحظات الصيدلي / حالة طارئة", value="يرجى الموافقة لضرورة الحالة الطبية العاجلة للمريضة.", key="pa_notes")
 
         gen_btn = st.button("📄 توليد الخطاب الرسمى", type="primary", use_container_width=True)
