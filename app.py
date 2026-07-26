@@ -348,7 +348,7 @@ elif page == "📖 Policy Directory":
     st.markdown("""
     <div class="main-header">
         <h1>📖 Policy Directory</h1>
-        <p>دليل وسجل سياسات التأمين الطبي لجميع الشركات الهيئات</p>
+        <p>دليل وسجل سياسات التأمين الطبي لجميع الشركات والهيئات</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -472,7 +472,7 @@ elif page == "⚡ Dispensing Check":
 
                 policies = company_data.get("policies", {})
                 checklist_items = [
-                    ("أقصى مدة للصرف", "⏱️ أقص مدة للصرف"),
+                    ("أقصى مدة للصرف", "⏱️ أقصى مدة للصرف"),
                     ("صلاحية النموذج", "📅 صلاحية النموذج"),
                     ("الختم / إمضاء العميل", "✍️ الأختام والتوقيعات"),
                     ("التحمل", "💰 نسبة التحمل"),
