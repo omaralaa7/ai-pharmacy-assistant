@@ -197,6 +197,12 @@ st.markdown("""
         direction: rtl; text-align: right;
     }
 
+    div[data-baseweb="input"] input, div[data-baseweb="textarea"] textarea {
+        direction: rtl;
+        text-align: right;
+        font-family: 'Noto Sans Arabic', 'Inter', sans-serif;
+    }
+
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     html { scroll-behavior: smooth; }
@@ -571,7 +577,7 @@ elif page == "📝 PA Letter Generator":
             letter_text = generate_real_pa_letter(comp_key, patient_name, pa_item, pa_diag, pharmacist_notes)
 
             st.markdown('<div class="section-header">📄 نص الخطاب المولد</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="pa-letter">{html.escape(letter_text)}</div>', unsafe_allow_html=True)
+            st.markdown(format_arabic_html(letter_text), unsafe_allow_html=True)
 
             st.download_button(
                 "⬇️ تحميل الخطاب (.txt)",
