@@ -70,6 +70,13 @@ CATEGORY_KEYWORDS = {
     "ملاحظات": ["ملاحظات", "ملاحظه", "ملاحظة", "notes", "note", "additional"],
 }
 
+# Greetings regex pattern
+GREETINGS_REGEX = re.compile(
+    r"^(ايه\s*الاخبار|ازيك|ازيك\s*يا\s*دكتور|عامل\s*ايه|اخبارك|مرحبا|اهل[اأ]|أهلين|السلام\s*عليكم|السلام\s*علكم|صباح\s*الخير|مساء\s*الخير|hi|hello|hey|how\s*are\s*you)\b",
+    re.IGNORECASE,
+)
+
+
 
 def _load_kb():
     """Load the knowledge base from JSON."""
@@ -257,39 +264,36 @@ def chat_query(user_question):
     """
     Main chatbot function — process a natural language question and return
     a structured answer from the knowledge base.
-
-    Parameters
-    ----------
-    user_question : str
-        The pharmacist's question in Arabic or English.
-
-    Returns
-    -------
-    dict with:
-        - found (bool): whether a relevant answer was found
-        - company_name (str): the matched company
-        - category (str): the matched policy category
-        - answer (str): the policy details text
-        - notes (str): any additional notes
-        - confidence (float): 0.0-1.0 confidence score
-        - method (str): "direct", "fuzzy", or "tfidf"
     """
     _load_kb()
     _build_tfidf_index()
 
     if not user_question or not user_question.strip():
-        return {"found": False, "error": "Please enter a question."}
+        return {"found": False, "error": "يرجى كتابة سؤالك أولاً / Please enter a question."}
 
     query = user_question.strip()
+    query_norm = normalize_arabic(query)
 
-    # --- Step 1: Try to detect company name ---
+    # --- Step 0: Check for General Greetings / Off-topic Greetings ---
+    if GREETINGS_REGEX.search(query_norm):
+        return {
+            "found": True,
+            "company_name": "مساعد التأمين الطبي",
+            "category": "ترحيب",
+            "category_en": "Welcome",
+            "answer": "أهلاً بك دكتور! 👋\nأنا مساعد التأمين الطبي الذكي. يمكنني إجابتك فوراً عن سياسات الصرف، ضوابط المحظورات، مدة الصرف، وأرقام تواصل الموافقات لشركات التأمين.\n\nتفضل بكتابة اسم شركة التأمين وسؤالك (مثال: 'ما هي محظورات يونايتد؟' أو 'أقصى مدة صرف ويبكو').",
+            "confidence": 1.0,
+            "method": "direct",
+        }
+
+    # --- Step 1: Detect company name ---
     company_match, company_score = _fuzzy_match_company(query)
 
-    # --- Step 2: Try to detect category ---
+    # --- Step 2: Detect category ---
     category_match = _detect_category(query)
 
     # --- Case A: Both company and category detected (direct lookup) ---
-    if company_match and company_score >= 0.4 and category_match:
+    if company_match and company_score >= 0.65 and category_match:
         company_data = _knowledge_base[company_match]
         if category_match in company_data["policies"]:
             policy = company_data["policies"][category_match]
@@ -298,16 +302,15 @@ def chat_query(user_question):
                 "company_name": company_data["company_name"],
                 "category": category_match,
                 "category_en": policy.get("category_en", ""),
-                "answer": policy.get("details", "No details available."),
+                "answer": policy.get("details", "لا توجد تفاصيل متاحة لهذا البند."),
                 "notes": policy.get("notes", ""),
-                "confidence": min(company_score + 0.2, 1.0),
-                "method": "direct" if company_score >= 0.7 else "fuzzy",
+                "confidence": min(company_score, 1.0),
+                "method": "direct" if company_score >= 0.8 else "fuzzy",
             }
 
-    # --- Case B: Company detected but no category (show all policies) ---
-    if company_match and company_score >= 0.4 and not category_match:
+    # --- Case B: Company detected with high confidence but no category (show summary) ---
+    if company_match and company_score >= 0.70 and not category_match:
         company_data = _knowledge_base[company_match]
-        # Return a summary of all categories
         summary_lines = []
         for cat, pol in company_data["policies"].items():
             detail_preview = pol.get("details", "")[:100]
@@ -316,33 +319,31 @@ def chat_query(user_question):
         return {
             "found": True,
             "company_name": company_data["company_name"],
-            "category": "all",
-            "category_en": "All Policies",
+            "category": "ملخص السياسات",
+            "category_en": "Policy Summary",
             "answer": "\n\n".join(summary_lines),
-            "notes": f"Found {len(company_data['policies'])} policy categories. Ask about a specific one for details.",
+            "notes": f"تم العثور على {len(company_data['policies'])} بنود سياسة. اسأل عن بند محدد للحصول على التفاصيل الكاملة.",
             "confidence": company_score,
-            "method": "direct" if company_score >= 0.7 else "fuzzy",
+            "method": "direct" if company_score >= 0.8 else "fuzzy",
         }
 
-    # --- Case C: Category detected but no company ---
-    if category_match and (not company_match or company_score < 0.4):
+    # --- Case C: Category detected but no company match ---
+    if category_match and (not company_match or company_score < 0.65):
         return {
             "found": False,
             "category": category_match,
-            "error": f"I understand you're asking about '{category_match}', but I need to know which insurance company. Please mention the company name.",
+            "error": f"فهمت أنك تسأل عن '{category_match}'، ولكن يرجى تحديد اسم شركة التأمين المحددة في سؤالك (مثال: 'محظورات يونايتد').",
         }
 
     # --- Case D: Fall back to TF-IDF semantic search ---
-    query_norm = normalize_arabic(query)
     query_vec = _tfidf_vectorizer.transform([query_norm])
     similarities = cosine_similarity(query_vec, _tfidf_matrix).flatten()
 
-    # Get top 3 results
     top_indices = similarities.argsort()[-3:][::-1]
     results = []
 
     for idx in top_indices:
-        if similarities[idx] < 0.05:
+        if similarities[idx] < 0.20:  # Raised threshold from 0.05 to 0.20 to prevent false matches
             continue
         comp_key, cat = _chunk_index[idx]
         comp_data = _knowledge_base[comp_key]
@@ -356,7 +357,7 @@ def chat_query(user_question):
             "confidence": float(similarities[idx]),
         })
 
-    if results:
+    if results and results[0]["confidence"] >= 0.25:
         best = results[0]
         best["found"] = True
         best["method"] = "tfidf"
@@ -365,5 +366,6 @@ def chat_query(user_question):
 
     return {
         "found": False,
-        "error": "I couldn't find a matching answer. Try asking about a specific insurance company and topic, for example:\n• 'ما هي محظورات يونايتد؟'\n• 'أقصى مدة صرف لشركة ويبكو'\n• 'What are the stamp requirements for GlobeMed?'",
+        "error": "عذراً دكتور، هذا الاستفسار خارج نطاق سياسات التأمين المتاحة لدينا أو لم يتم تحديد اسم شركة التأمين بدقة.\n\nيرجى تحديد اسم شركة التأمين والسؤال عن بند محدد، مثل:\n• 'ما هي محظورات يونايتد؟'\n• 'أقصى مدة صرف لشركة ويبكو'\n• 'رقم تليفون موافقات دريم مشرق'\n• 'What are the stamp requirements for GlobeMed?'",
     }
+
