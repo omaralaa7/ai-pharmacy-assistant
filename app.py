@@ -1,12 +1,12 @@
 """
-Pharmacist Dashboard (Streamlit Application)
-AI-Driven Insurance Assistant (Diploma Project Prototype)
+Medical Insurance Policy Assistant (Streamlit Application)
+Pharmacist Decision Support System
 
-Clean prototype running 100% on real Egyptian insurance policy data:
-  1. AI Chatbot — natural language queries about insurance policies
+Professional policy query and verification system running on real Egyptian insurance policy data:
+  1. Policy Search Engine — natural language search across company rules
   2. Policy Directory — browse all company policy categories
   3. Dispensing Quick-Check — verify exclusions and requirements
-  4. Approval Compliance Check — rule compliance & approval likelihood score
+  4. Approval Compliance Check — rule compliance evaluation
   5. PA Letter Generator — generate official prior authorization letters
 
 Run locally with: streamlit run app.py
@@ -99,7 +99,7 @@ def format_arabic_html(text):
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="AI Insurance Assistant | مساعد التأمين الطبي",
+    page_title="Medical Insurance Assistant | مساعد التأمين الطبي",
     page_icon="💊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -213,14 +213,14 @@ st.markdown("""
 # Sidebar Navigation
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## 💊 AI Insurance Assistant")
-    st.markdown("##### نظام مساعد التأمين الطبي الذكي")
+    st.markdown("## 💊 Insurance Assistant")
+    st.markdown("##### نظام مساعد التأمين الطبي")
     st.markdown("---")
 
     page = st.radio(
         "Navigation",
         [
-            "💬 AI Chatbot",
+            "💬 Policy Search",
             "📖 Policy Directory",
             "⚡ Dispensing Check",
             "🏥 Approval Check",
@@ -230,18 +230,18 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.caption("AI-Driven Medical Insurance System")
-    st.caption("Pharmacy Decision Support Prototype")
+    st.caption("Medical Insurance Management System")
+    st.caption("Pharmacy Decision Support System")
 
 
 # ===========================================================================
-# PAGE 1: AI CHATBOT
+# PAGE 1: POLICY SEARCH
 # ===========================================================================
-if page == "💬 AI Chatbot":
+if page == "💬 Policy Search":
     st.markdown("""
     <div class="main-header">
-        <h1>💬 AI Insurance Assistant</h1>
-        <p>مساعد الاستعلام الذكي عن سياسات وقواعد صرف التأمين الطبي</p>
+        <h1>💬 Policy Search Engine</h1>
+        <p>نظام الاستعلام الرقمي عن سياسات وقواعد صرف التأمين الطبي</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -457,7 +457,7 @@ elif page == "⚡ Dispensing Check":
 
 
 # ===========================================================================
-# PAGE 4: APPROVAL CHECK (Real Data Rules Compliance)
+# PAGE 4: APPROVAL CHECK
 # ===========================================================================
 elif page == "🏥 Approval Check":
     st.markdown("""
@@ -540,7 +540,7 @@ elif page == "🏥 Approval Check":
 
 
 # ===========================================================================
-# PAGE 5: PA LETTER GENERATOR (Real Data Contacts & Procedures)
+# PAGE 5: PA LETTER GENERATOR
 # ===========================================================================
 elif page == "📝 PA Letter Generator":
     st.markdown("""
