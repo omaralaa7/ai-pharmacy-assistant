@@ -2,21 +2,23 @@
 Phase 3 — Pharmacist Dashboard (Streamlit Application)
 AI-Driven Insurance Chatbot (Diploma Project)
 
-This is the main application — the pharmacist-facing interface that integrates:
+Integrated application providing:
   1. AI Chatbot — natural language queries about insurance policies
-  2. Policy Directory — browse all 77 companies and 14 categories
+  2. Policy Directory — browse all company policy categories
   3. Dispensing Quick-Check — verify exclusions and requirements
-  4. Analytics — visual insights across all insurers
-  5. (Kept) Approval Prediction — ML model from synthetic data
-  6. (Kept) Rejection Assistant — code interpreter
-  7. Model Performance — ML evaluation metrics
+  4. Analytics — visual insights across insurance providers
+  5. Approval Prediction — ML model for claims approval
+  6. Rejection Assistant — code interpreter & letter generator
+  7. Model Performance — evaluation metrics
 
-Run with: streamlit run app.py
+Run locally with: streamlit run app.py
 """
 
 import os
 import sys
 import json
+import html
+import re
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -85,10 +87,54 @@ def load_knowledge_base():
 
 
 # ---------------------------------------------------------------------------
+# RTL & Text Formatter Helper
+# ---------------------------------------------------------------------------
+def format_arabic_html(text):
+    """
+    Renders Arabic/English policy text with strict RTL alignment,
+    cleaning punctuation artifacts (e.g. colons at line starts) and bullets.
+    """
+    if not text:
+        return '<div dir="rtl" style="direction: rtl; text-align: right; color: rgba(250,250,250,0.5); font-style: italic;">لا توجد تفاصيل متاحة</div>'
+
+    lines = [line.strip() for line in str(text).split("\n") if line.strip()]
+    formatted_elements = []
+
+    for line in lines:
+        # Fix leading colon export artifact
+        if line.startswith(":"):
+            line = line[1:].strip() + " :"
+        elif line.startswith(":-"):
+            line = line[2:].strip() + " :-"
+
+        safe_line = html.escape(line)
+
+        # Bullet item check
+        match_bullet = re.match(r"^([\-\•\*\d+[\.\-]]+)\s*(.+)", safe_line)
+        if match_bullet:
+            bullet_mark = match_bullet.group(1)
+            content = match_bullet.group(2)
+            formatted_elements.append(
+                f'<div style="display: flex; flex-direction: row-reverse; justify-content: flex-end; align-items: flex-start; gap: 0.6rem; margin: 0.4rem 0; line-height: 1.8;">'
+                f'<span style="color: #00D4AA; font-weight: 600; flex-shrink: 0;">{bullet_mark}</span>'
+                f'<span style="flex: 1; text-align: right; direction: rtl; unicode-bidi: isolate;">{content}</span>'
+                f'</div>'
+            )
+        else:
+            formatted_elements.append(
+                f'<p style="margin: 0.4rem 0; line-height: 1.8; text-align: right; direction: rtl; unicode-bidi: isolate;">{safe_line}</p>'
+            )
+
+    return f'''<div dir="rtl" style="direction: rtl; text-align: right; font-family: 'Noto Sans Arabic', 'Inter', sans-serif; unicode-bidi: isolate; background: rgba(26, 31, 46, 0.95); border: 1px solid rgba(0, 212, 170, 0.2); border-radius: 12px; padding: 1.2rem; margin: 0.6rem 0; color: #e2e8f0; font-size: 0.95rem;">
+{''.join(formatted_elements)}
+</div>'''
+
+
+# ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
-    page_title="AI Insurance Assistant | مساعد التأمين الذكي",
+    page_title="AI Insurance Assistant | مساعد التأمين الطبي",
     page_icon="💊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -124,7 +170,7 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 8px 24px rgba(0, 212, 170, 0.12);
     }
-    .kpi-value { font-size: 2rem; font-weight: 700; color: #00D4AA; line-height: 1.2; }
+    .kpi-value { font-size: 1.8rem; font-weight: 700; color: #00D4AA; line-height: 1.2; }
     .kpi-label {
         font-size: 0.8rem; color: rgba(250,250,250,0.6);
         text-transform: uppercase; letter-spacing: 0.08em; margin-top: 0.3rem;
@@ -142,34 +188,15 @@ st.markdown("""
         margin: 0.5rem 0;
         direction: auto;
     }
-    .chat-bubble-bot {
-        background: rgba(30, 41, 59, 0.8);
-        border: 1px solid rgba(100, 116, 139, 0.3);
-        border-radius: 12px 12px 12px 4px;
-        padding: 1rem 1.2rem;
-        margin: 0.5rem 0;
-        direction: auto;
-        white-space: pre-wrap;
-        line-height: 1.8;
-    }
 
     .checklist-item {
         background: rgba(0, 212, 170, 0.05);
-        border-left: 3px solid #00D4AA;
+        border-right: 3px solid #00D4AA;
         padding: 0.8rem 1rem;
         margin: 0.5rem 0;
-        border-radius: 0 8px 8px 0;
-    }
-
-    .policy-card {
-        background: #1a1f2e;
-        border: 1px solid rgba(0, 212, 170, 0.15);
-        border-radius: 12px;
-        padding: 1.2rem;
-        margin: 0.5rem 0;
-        white-space: pre-wrap;
-        direction: auto;
-        line-height: 1.8;
+        border-radius: 8px 0 0 8px;
+        direction: rtl;
+        text-align: right;
     }
 
     .status-box {
@@ -192,6 +219,8 @@ st.markdown("""
         border-radius: 12px;
         padding: 1rem 1.5rem;
         margin: 1rem 0;
+        direction: rtl;
+        text-align: right;
     }
     .approved-alert {
         background: rgba(16, 185, 129, 0.1);
@@ -199,6 +228,8 @@ st.markdown("""
         border-radius: 12px;
         padding: 1rem 1.5rem;
         margin: 1rem 0;
+        direction: rtl;
+        text-align: right;
     }
 
     .pa-letter {
@@ -215,15 +246,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar Navigation
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("## 💊 AI Insurance Assistant")
-    st.markdown("##### مساعد التأمين الذكي")
+    st.markdown("##### نظام مساعد التأمين الطبي الذكي")
     st.markdown("---")
 
     page = st.radio(
-        "Navigate",
+        "Navigation",
         [
             "💬 AI Chatbot",
             "📖 Policy Directory",
@@ -237,28 +268,8 @@ with st.sidebar:
     )
 
     st.markdown("---")
-
-    kb = load_knowledge_base()
-    total_companies = len(kb)
-    total_policies = sum(len(c.get("policies", {})) for c in kb.values())
-
-    st.markdown(f"""
-    <div class="kpi-card" style="margin-bottom: 0.8rem;">
-        <div class="kpi-value">{total_companies}</div>
-        <div class="kpi-label">Insurance Companies</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-value">{total_policies}</div>
-        <div class="kpi-label">Policy Rules</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.caption("AI-Driven Insurance Chatbot")
-    st.caption("Diploma Project — Real Egyptian Data")
+    st.caption("AI-Driven Medical Insurance System")
+    st.caption("Pharmacy Decision Support Prototype")
 
 
 # ===========================================================================
@@ -268,42 +279,37 @@ if page == "💬 AI Chatbot":
     st.markdown("""
     <div class="main-header">
         <h1>💬 AI Insurance Assistant</h1>
-        <p>اسأل عن سياسات أي شركة تأمين باللغة العربية أو الإنجليزية</p>
+        <p>مساعد الاستعلام الذكي عن سياسات وقواعد صرف التأمين الطبي</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Example questions
-    with st.expander("💡 Example Questions / أمثلة على الأسئلة"):
+    with st.expander("💡 Example Queries / أمثلة على الاستعلامات"):
         st.markdown("""
-        - **ما هي محظورات يونايتد؟** — Shows United's excluded items list
-        - **أقصى مدة صرف لشركة ويبكو** — Shows WEPCO's max dispensing duration
-        - **رقم تليفون موافقات دريم مشرق** — Shows Dream Mashreq approval contacts
-        - **هل يشترط ختم لشركة جلوبميد؟** — Shows GlobeMed stamp requirements
-        - **What is the copay for ALICO?** — Shows ALICO's co-payment rules
-        - **يونايتد** — Shows all policy categories for United
+        - **ما هي محظورات يونايتد؟** — قائمة المواد والمستحضرات المحظور صرفها
+        - **أقصى مدة صرف لشركة ويبكو** — أقصى فترة علاجية مسموح بصرفها
+        - **رقم تليفون موافقات دريم مشرق** — أرقام التواصل للموافقات الطبية
+        - **هل يشترط ختم لشركة جلوبميد؟** — ضوابط وأختام الروشتات
+        - **What is the copay for ALICO?** — نسبة التحمل ورسوم الخدمة
         """)
 
-    # Chat history
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Input
     col_input, col_btn = st.columns([5, 1])
     with col_input:
         user_question = st.text_input(
             "Ask about any insurance company...",
-            placeholder="مثال: ما هي محظورات يونايتد؟ / What are the exclusions for United?",
+            placeholder="اكتب استفسارك هنا... (مثال: ما هي محظورات شركة يونايتد؟)",
             key="chat_input",
             label_visibility="collapsed",
         )
     with col_btn:
-        send_btn = st.button("🔍 Ask", type="primary", use_container_width=True)
+        send_btn = st.button("🔍 بحث", type="primary", use_container_width=True)
 
     if send_btn and user_question:
         result = chat_query(user_question)
         st.session_state.chat_history.append({"question": user_question, "result": result})
 
-    # Display chat history (newest first)
     for entry in reversed(st.session_state.chat_history):
         q = entry["question"]
         r = entry["result"]
@@ -311,26 +317,26 @@ if page == "💬 AI Chatbot":
         st.markdown(f'<div class="chat-bubble-user">🧑‍⚕️ {q}</div>', unsafe_allow_html=True)
 
         if r.get("found"):
-            method_badge = {"direct": "✅ Direct Match", "fuzzy": "🔗 Fuzzy Match", "tfidf": "🔎 AI Search"}.get(r.get("method", ""), "")
+            method_badge = {"direct": "✅ مطابقة مباشرة", "fuzzy": "🔗 مطابقة تقريبية", "tfidf": "🔎 بحث ذكي"}.get(r.get("method", ""), "")
             confidence = r.get("confidence", 0)
 
-            header = f"**{r.get('company_name', '')}** — {r.get('category', '')} ({r.get('category_en', '')})"
-            st.markdown(f'<div class="chat-bubble-bot">{method_badge} (Confidence: {confidence:.0%})\n\n{header}\n\n{r.get("answer", "")}</div>', unsafe_allow_html=True)
+            header_text = f"<strong>{r.get('company_name', '')}</strong> — {r.get('category', '')}"
+            st.markdown(f'<div style="direction: rtl; text-align: right; color: #00D4AA; font-weight: 600; margin-bottom: 0.4rem;">{method_badge} (درجة الثقة: {confidence:.0%}) | {header_text}</div>', unsafe_allow_html=True)
+            st.markdown(format_arabic_html(r.get("answer", "")), unsafe_allow_html=True)
 
             if r.get("notes"):
-                st.caption(f"📝 {r['notes']}")
+                st.caption(f"📝 ملاحظات إضافية: {r['notes']}")
 
-            # Show other TF-IDF results if available
             if r.get("other_results"):
-                with st.expander("More related results"):
+                with st.expander("نتائج إضافية ذات صلة"):
                     for other in r["other_results"]:
                         st.markdown(f"**{other['company_name']}** — {other['category']}")
-                        st.markdown(other["answer"][:200] + "...")
+                        st.markdown(format_arabic_html(other["answer"][:200]), unsafe_allow_html=True)
         else:
-            error_msg = r.get("error", "No results found.")
-            st.markdown(f'<div class="chat-bubble-bot">❌ {error_msg}</div>', unsafe_allow_html=True)
+            error_msg = r.get("error", "لم يتم العثور على نتائج مطابقة.")
+            st.markdown(f'<div class="chat-bubble-bot" dir="rtl" style="text-align: right;">❌ {error_msg}</div>', unsafe_allow_html=True)
 
-    if st.button("🗑️ Clear Chat"):
+    if st.button("🗑️ مسح السجل"):
         st.session_state.chat_history = []
         st.rerun()
 
@@ -342,15 +348,15 @@ elif page == "📖 Policy Directory":
     st.markdown("""
     <div class="main-header">
         <h1>📖 Policy Directory</h1>
-        <p>تصفح سياسات جميع شركات التأمين — Browse all insurance company policies</p>
+        <p>دليل وسجل سياسات التأمين الطبي لجميع الشركات الهيئات</p>
     </div>
     """, unsafe_allow_html=True)
 
     companies = get_all_companies()
-    company_options = {f"{c['name']} ({c['id']})": c["key"] for c in companies}
+    company_options = {f"{c['name']}": c["key"] for c in companies}
 
     selected_label = st.selectbox(
-        "Select Insurance Company / اختر شركة التأمين",
+        "Select Insurance Company / اختر الجهة الضامنة",
         options=list(company_options.keys()),
     )
 
@@ -359,19 +365,18 @@ elif page == "📖 Policy Directory":
         company_data = get_company_policies(selected_key)
 
         if company_data:
-            # Company header
             col_info1, col_info2, col_info3 = st.columns(3)
             with col_info1:
                 st.markdown(f"""
                 <div class="kpi-card">
-                    <div class="kpi-value" style="font-size:1.3rem;">{company_data.get('company_name_ar', '')}</div>
-                    <div class="kpi-label">Arabic Name</div>
+                    <div class="kpi-value" style="font-size:1.2rem;">{company_data.get('company_name_ar', '')}</div>
+                    <div class="kpi-label">الاسم بالعربية</div>
                 </div>
                 """, unsafe_allow_html=True)
             with col_info2:
                 st.markdown(f"""
                 <div class="kpi-card">
-                    <div class="kpi-value" style="font-size:1.3rem;">{company_data.get('company_name_en', '').upper() or 'N/A'}</div>
+                    <div class="kpi-value" style="font-size:1.2rem;">{company_data.get('company_name_en', '').upper() or 'N/A'}</div>
                     <div class="kpi-label">English Name</div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -379,26 +384,24 @@ elif page == "📖 Policy Directory":
                 st.markdown(f"""
                 <div class="kpi-card">
                     <div class="kpi-value">{len(company_data.get('policies', {}))}</div>
-                    <div class="kpi-label">Policy Categories</div>
+                    <div class="kpi-label">عدد بنود السياسة</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Category filter
             all_cats = list(company_data.get("policies", {}).keys())
-            filter_cat = st.multiselect("Filter by category (optional)", all_cats)
+            filter_cat = st.multiselect("تصفية حسب البند (اختياري)", all_cats)
             cats_to_show = filter_cat if filter_cat else all_cats
 
-            # Display policies
             for category in cats_to_show:
                 policy = company_data["policies"][category]
                 cat_en = policy.get("category_en", "")
 
                 with st.expander(f"📋 {category} — {cat_en}", expanded=len(cats_to_show) <= 3):
-                    st.markdown(f'<div class="policy-card">{policy.get("details", "No details available.")}</div>', unsafe_allow_html=True)
+                    st.markdown(format_arabic_html(policy.get("details", "")), unsafe_allow_html=True)
                     if policy.get("notes"):
-                        st.info(f"📝 Notes: {policy['notes']}")
+                        st.info(f"📝 ملاحظات: {policy['notes']}")
 
 
 # ===========================================================================
@@ -408,7 +411,7 @@ elif page == "⚡ Dispensing Check":
     st.markdown("""
     <div class="main-header">
         <h1>⚡ Dispensing Quick-Check</h1>
-        <p>تحقق من محظورات ومتطلبات الصرف — Verify exclusions and dispensing requirements</p>
+        <p>نظام التحقق السريع من المحظورات وضوابط الصرف قبل الدواء</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -418,82 +421,78 @@ elif page == "⚡ Dispensing Check":
     col_check1, col_check2 = st.columns([1, 1.5])
 
     with col_check1:
-        st.markdown('<div class="section-header">🔍 Check Details</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🔍 بيانات الفحص</div>', unsafe_allow_html=True)
 
         selected_company = st.selectbox(
-            "Insurance Company / شركة التأمين",
+            "جهة التأمين / الشركة",
             options=list(company_options.keys()),
             key="check_company",
         )
 
         item_to_check = st.text_input(
-            "Item / Medication Name",
-            placeholder="e.g., sun screen, فيتامينات, clexan...",
+            "اسم المستحضر / الصنف",
+            placeholder="مثال: كريمات تفتيح, فيتامينات, clexan...",
             key="check_item",
         )
 
-        check_btn = st.button("⚡ Check", type="primary", use_container_width=True)
+        check_btn = st.button("⚡ بدء الفحص", type="primary", use_container_width=True)
 
     with col_check2:
         if check_btn and selected_company and item_to_check:
             company_key = company_options[selected_company]
             company_data = get_company_policies(company_key)
 
-            # Check exclusions
             result = check_exclusions(company_key, item_to_check)
 
             if result.get("is_excluded"):
                 st.markdown(f"""
                 <div class="excluded-alert">
-                    <h3 style="color: #ef4444; margin: 0;">🚫 EXCLUDED / محظور</h3>
+                    <h3 style="color: #ef4444; margin: 0;">🚫 صنف محظور الصرف</h3>
                     <p style="margin: 0.5rem 0 0 0;">
-                        <strong>{item_to_check}</strong> appears to be in <strong>{selected_company}</strong>'s exclusion list.
+                        المستحضر <strong>{item_to_check}</strong> يندرج ضمن قائمة المحظورات لشركة <strong>{selected_company}</strong>.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
                 <div class="approved-alert">
-                    <h3 style="color: #10b981; margin: 0;">✅ NOT IN EXCLUSION LIST</h3>
+                    <h3 style="color: #10b981; margin: 0;">✅ غير مدرج ضمن المحظورات المباشرة</h3>
                     <p style="margin: 0.5rem 0 0 0;">
-                        <strong>{item_to_check}</strong> was not found in <strong>{selected_company}</strong>'s exclusion list.
-                        <br><em>Note: Always verify with the full policy details.</em>
+                        المستحضر <strong>{item_to_check}</strong> لم يظهر في قائمة المحظورات الصريحة لـ <strong>{selected_company}</strong>.
                     </p>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # Show exclusions list
             if result.get("full_exclusions"):
-                with st.expander("📋 Full Exclusion List / قائمة المحظورات الكاملة"):
-                    st.markdown(f'<div class="policy-card">{result["full_exclusions"]}</div>', unsafe_allow_html=True)
+                with st.expander("📋 قائمة المحظورات الكاملة للشركة"):
+                    st.markdown(format_arabic_html(result["full_exclusions"]), unsafe_allow_html=True)
 
-            # Show dispensing summary
             if company_data:
-                st.markdown('<div class="section-header">📋 Dispensing Checklist</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-header">📋 قائمة ضوابط الصرف</div>', unsafe_allow_html=True)
 
                 policies = company_data.get("policies", {})
                 checklist_items = [
-                    ("أقصى مدة للصرف", "⏱️ Max Duration", "Maximum Dispensing Duration"),
-                    ("صلاحية النموذج", "📅 Form Validity", "Form Validity Period"),
-                    ("الختم / إمضاء العميل", "✍️ Stamp/Signature", "Stamp Requirements"),
-                    ("التحمل", "💰 Co-payment", "Co-payment / Deductible"),
-                    ("صورة الكارنية", "🎴 Card Copy", "Insurance Card Requirement"),
-                    ("صورة البطاقة", "🪪 ID Copy", "National ID Requirement"),
-                    ("التشخيص", "🩺 Diagnosis", "Diagnosis Requirements"),
+                    ("أقصى مدة للصرف", "⏱️ أقص مدة للصرف"),
+                    ("صلاحية النموذج", "📅 صلاحية النموذج"),
+                    ("الختم / إمضاء العميل", "✍️ الأختام والتوقيعات"),
+                    ("التحمل", "💰 نسبة التحمل"),
+                    ("صورة الكارنية", "🎴 صورة الكارنيه"),
+                    ("صورة البطاقة", "🪪 صورة البطاقة الشخصية"),
+                    ("التشخيص", "🩺 اشتراطات التشخيص"),
                 ]
 
-                for cat_ar, icon_label, cat_en in checklist_items:
+                for cat_ar, label in checklist_items:
                     if cat_ar in policies:
-                        detail = policies[cat_ar].get("details", "—")
-                        st.markdown(f'<div class="checklist-item"><strong>{icon_label}:</strong> {detail}</div>', unsafe_allow_html=True)
+                        detail = policies[cat_ar].get("details", "")
+                        st.markdown(f'<div class="checklist-item"><strong>{label}:</strong></div>', unsafe_allow_html=True)
+                        st.markdown(format_arabic_html(detail), unsafe_allow_html=True)
 
-                # Contact info
                 if "التواصل للموافقات" in policies:
-                    st.markdown('<div class="section-header">📞 Approval Contacts</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="policy-card">{policies["التواصل للموافقات"].get("details", "")}</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="section-header">📞 التواصل للموافقات</div>', unsafe_allow_html=True)
+                    st.markdown(format_arabic_html(policies["التواصل للموافقات"].get("details", "")), unsafe_allow_html=True)
 
         elif check_btn:
-            st.warning("Please select a company and enter an item name.")
+            st.warning("يرجى اختيار شركة التأمين وإدخال اسم الصنف للفحص.")
 
 
 # ===========================================================================
@@ -502,54 +501,31 @@ elif page == "⚡ Dispensing Check":
 elif page == "📊 Analytics":
     st.markdown("""
     <div class="main-header">
-        <h1>📊 Insurance Analytics</h1>
-        <p>Visual insights across all 77 Egyptian insurance providers</p>
+        <h1>📊 Analytics Dashboard</h1>
+        <p>تحليلات توزيع قواعد وسياسات التأمين الطبي</p>
     </div>
     """, unsafe_allow_html=True)
 
     kb = load_knowledge_base()
 
-    # KPI Cards
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     total_companies = len(kb)
-    total_policies = sum(len(c.get("policies", {})) for c in kb.values())
     companies_with_exclusions = sum(1 for c in kb.values() if "المحظورات" in c.get("policies", {}))
     companies_with_contacts = sum(1 for c in kb.values() if "التواصل للموافقات" in c.get("policies", {}))
 
     with col1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_companies}</div><div class="kpi-label">Companies</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_companies}</div><div class="kpi-label">عدد الجهات والشركات</div></div>', unsafe_allow_html=True)
     with col2:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_policies}</div><div class="kpi-label">Policy Rules</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{companies_with_exclusions}</div><div class="kpi-label">جهات تتضمن قائمة محظورات</div></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{companies_with_exclusions}</div><div class="kpi-label">With Exclusion Lists</div></div>', unsafe_allow_html=True)
-    with col4:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{companies_with_contacts}</div><div class="kpi-label">With Contact Info</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{companies_with_contacts}</div><div class="kpi-label">جهات توفر خطوط موافقات</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Chart 1: Categories per company
     col_c1, col_c2 = st.columns(2)
 
     with col_c1:
-        st.markdown('<div class="section-header">Policy Categories per Company</div>', unsafe_allow_html=True)
-        cat_counts = []
-        for key, data in kb.items():
-            cat_counts.append({
-                "Company": data.get("company_name_ar", key)[:20],
-                "Categories": len(data.get("policies", {})),
-            })
-        cat_df = pd.DataFrame(cat_counts).sort_values("Categories", ascending=True).tail(20)
-
-        fig1 = px.bar(cat_df, x="Categories", y="Company", orientation="h",
-                      color="Categories", color_continuous_scale=["#1a1f2e", "#00D4AA"])
-        fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          font=dict(color="#fafafa"), height=500, margin=dict(l=10,r=10,t=10,b=10),
-                          showlegend=False, coloraxis_showscale=False,
-                          xaxis=dict(gridcolor="rgba(255,255,255,0.05)"))
-        st.plotly_chart(fig1, use_container_width=True)
-
-    with col_c2:
-        st.markdown('<div class="section-header">Category Coverage Across All Companies</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">تغطية البنود عبر الشركات</div>', unsafe_allow_html=True)
         cat_coverage = {}
         for data in kb.values():
             for cat in data.get("policies", {}):
@@ -557,73 +533,40 @@ elif page == "📊 Analytics":
 
         coverage_df = pd.DataFrame(
             sorted(cat_coverage.items(), key=lambda x: x[1], reverse=True),
-            columns=["Category", "Companies"],
+            columns=["البند", "عدد الشركات"],
         )
 
-        fig2 = px.bar(coverage_df, x="Companies", y="Category", orientation="h",
-                      color="Companies", color_continuous_scale=["#ef4444", "#f59e0b", "#10b981"])
+        fig2 = px.bar(coverage_df, x="عدد الشركات", y="البند", orientation="h",
+                      color="عدد الشركات", color_continuous_scale=["#ef4444", "#f59e0b", "#10b981"])
         fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          font=dict(color="#fafafa"), height=500, margin=dict(l=10,r=10,t=10,b=10),
+                          font=dict(color="#fafafa"), height=450, margin=dict(l=10,r=10,t=10,b=10),
                           showlegend=False, coloraxis_showscale=False,
                           xaxis=dict(gridcolor="rgba(255,255,255,0.05)"))
         st.plotly_chart(fig2, use_container_width=True)
 
-    # Chart 2: Max dispensing duration distribution
-    st.markdown('<div class="section-header">Maximum Dispensing Duration Distribution</div>', unsafe_allow_html=True)
-    duration_data = []
-    for key, data in kb.items():
-        pol = data.get("policies", {}).get("أقصى مدة للصرف", {})
-        detail = pol.get("details", "")
-        if detail:
-            duration_data.append({
-                "Company": data.get("company_name_ar", key)[:25],
-                "Duration": detail[:50],
-            })
-
-    if duration_data:
-        dur_df = pd.DataFrame(duration_data)
-        st.dataframe(dur_df, use_container_width=True, hide_index=True, height=300)
-
-    # Also show synthetic claims analytics
-    st.markdown("---")
-    st.markdown('<div class="section-header">📈 Synthetic Claims Analytics (ML Training Data)</div>', unsafe_allow_html=True)
-
-    claims_df = load_claims()
-    col_s1, col_s2 = st.columns(2)
-
-    with col_s1:
-        approval_by_insurer = claims_df.groupby("insurance_name")["approved"].mean().reset_index()
-        approval_by_insurer.columns = ["Insurance", "Approval Rate"]
-        fig_s1 = px.bar(approval_by_insurer.sort_values("Approval Rate"), x="Approval Rate", y="Insurance",
-                        orientation="h", color="Approval Rate",
-                        color_continuous_scale=["#ef4444", "#f59e0b", "#10b981"], range_color=[0,1])
-        fig_s1.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                            font=dict(color="#fafafa"), height=300, margin=dict(l=10,r=10,t=10,b=10),
-                            showlegend=False, coloraxis_showscale=False,
-                            xaxis=dict(tickformat=".0%", gridcolor="rgba(255,255,255,0.05)"))
-        st.plotly_chart(fig_s1, use_container_width=True)
-
-    with col_s2:
+    with col_c2:
+        claims_df = load_claims()
         rejected_claims = claims_df[claims_df["approved"] == 0]
         code_dist = rejected_claims["rejection_code"].value_counts().reset_index()
-        code_dist.columns = ["Code", "Count"]
-        fig_s2 = px.pie(code_dist, values="Count", names="Code",
+        code_dist.columns = ["الكود", "العدد"]
+        st.markdown('<div class="section-header">توزيع أكواد الرفض (بيانات نموذجية)</div>', unsafe_allow_html=True)
+        fig_s2 = px.pie(code_dist, values="العدد", names="الكود",
                         color_discrete_sequence=["#ef4444","#f59e0b","#3b82f6","#8b5cf6","#ec4899","#06b6d4"],
                         hole=0.4)
         fig_s2.update_layout(paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#fafafa"),
-                            height=300, margin=dict(l=10,r=10,t=10,b=10))
+                            height=450, margin=dict(l=10,r=10,t=10,b=10))
         fig_s2.update_traces(textposition="inside", textinfo="label+percent")
         st.plotly_chart(fig_s2, use_container_width=True)
 
 
 # ===========================================================================
-# PAGE 5: APPROVAL PREDICTION (kept from original)
+# PAGE 5: APPROVAL PREDICTION
 # ===========================================================================
 elif page == "🏥 Approval Prediction":
     st.markdown("""
     <div class="main-header">
         <h1>🏥 Approval Prediction (Synthetic Data Demo)</h1>
-        <p>ML model predicting insurance claim approval likelihood</p>
+        <p>نموذج الذكاء الاصطناعي للتنبؤ بنسبة قبول المطالبات</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -632,7 +575,7 @@ elif page == "🏥 Approval Prediction":
     col_form, col_spacer, col_result = st.columns([1, 0.05, 1.2])
 
     with col_form:
-        st.markdown('<div class="section-header">📋 Claim Details</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📋 بيانات المطالبة</div>', unsafe_allow_html=True)
         drug_options = sorted(rules_df["drug_name"].unique())
         drug_name = st.selectbox("Medication", drug_options, key="claim_drug")
         insurance_options = sorted(rules_df["insurance_name"].unique())
@@ -641,7 +584,7 @@ elif page == "🏥 Approval Prediction":
         diagnosis_code = st.text_input("Diagnosis Code (ICD-10)", value=drug_diagnosis, key="claim_diag")
         patient_age = st.slider("Patient Age", 18, 90, 45, key="claim_age")
 
-        st.markdown('<div class="section-header">📄 Clinical Information</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📄 الإجراءات السريرية</div>', unsafe_allow_html=True)
         rule_match = rules_df[(rules_df["insurance_name"]==insurance_name) & (rules_df["drug_name"]==drug_name)]
 
         if not rule_match.empty:
@@ -650,21 +593,21 @@ elif page == "🏥 Approval Prediction":
             requires_lab = rule.get("requires_lab_results") in [True, "True"]
             if requires_step:
                 prior_drug = rule.get("required_prior_drug", "alternative")
-                st.info(f"ℹ️ Requires step therapy: try **{prior_drug}** first")
-                prior_drug_tried = st.checkbox(f"Patient has tried {prior_drug}", key="claim_prior")
+                st.info(f"ℹ️ يتطلب العلاج المتدرج: تجربة **{prior_drug}** أولاً")
+                prior_drug_tried = st.checkbox(f"تم تجربة دواء {prior_drug}", key="claim_prior")
             else:
-                st.success("✅ No step therapy required"); prior_drug_tried = True
+                st.success("✅ لا يتطلب علاج متدرج"); prior_drug_tried = True
             if requires_lab:
-                st.info("ℹ️ Lab results required")
-                had_lab_results = st.checkbox("Lab results available", key="claim_lab")
+                st.info("ℹ️ يتطلب نتائج تحاليل معملية")
+                had_lab_results = st.checkbox("التحاليل المعملية متوفرة", key="claim_lab")
             else:
-                st.success("✅ No lab results required"); had_lab_results = True
+                st.success("✅ لا يتطلب تحاليل معملية"); had_lab_results = True
         else:
             prior_drug_tried = st.checkbox("Prior drug tried", key="cpf")
             had_lab_results = st.checkbox("Lab results available", key="clf")
 
         days_supply = st.select_slider("Days Supply", options=[14,30,60,90], value=30, key="claim_days")
-        predict_btn = st.button("🔮 Predict Approval", type="primary", use_container_width=True)
+        predict_btn = st.button("🔮 بدء التنبؤ", type="primary", use_container_width=True)
 
     with col_result:
         if predict_btn:
@@ -675,7 +618,7 @@ elif page == "🏥 Approval Prediction":
             color = {"LOW":"#10b981","MEDIUM":"#f59e0b","HIGH":"#ef4444"}[risk]
             risk_class = {"LOW":"risk-low","MEDIUM":"risk-medium","HIGH":"risk-high"}[risk]
 
-            st.markdown(f'<div style="text-align:center;padding:1rem;"><div style="font-size:3.5rem;font-weight:700;color:{color};">{prob:.0%}</div><div style="font-size:0.85rem;color:rgba(250,250,250,0.6);text-transform:uppercase;">Approval Probability</div><div style="margin-top:0.8rem;"><span class="{risk_class}">{risk} RISK</span></div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align:center;padding:1rem;"><div style="font-size:3.5rem;font-weight:700;color:{color};">{prob:.0%}</div><div style="font-size:0.85rem;color:rgba(250,250,250,0.6);text-transform:uppercase;">احتمالية القبول</div><div style="margin-top:0.8rem;"><span class="{risk_class}">{risk} RISK</span></div></div>', unsafe_allow_html=True)
 
             fig_g = go.Figure(go.Indicator(mode="gauge+number", value=prob*100, number={"suffix":"%","font":{"size":40}},
                 gauge={"axis":{"range":[0,100]},"bar":{"color":color,"thickness":0.3},"bgcolor":"#1a1f2e",
@@ -684,53 +627,53 @@ elif page == "🏥 Approval Prediction":
             st.plotly_chart(fig_g, use_container_width=True)
 
             if result["risk_factors"]:
-                st.markdown('<div class="section-header">⚡ Risk Analysis</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-header">⚡ تحليلات المخاطر</div>', unsafe_allow_html=True)
                 for f in result["risk_factors"]:
                     st.markdown(f'<div class="checklist-item">{f}</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="status-box">{result["recommendation"]}</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div style="text-align:center;padding:4rem 2rem;opacity:0.5;"><div style="font-size:4rem;">🔮</div><h3 style="color:#888;">Enter Claim Details</h3></div>', unsafe_allow_html=True)
+            st.markdown('<div style="text-align:center;padding:4rem 2rem;opacity:0.5;"><div style="font-size:4rem;">🔮</div><h3 style="color:#888;">أدخل بيانات المطالبة للتنبؤ</h3></div>', unsafe_allow_html=True)
 
 
 # ===========================================================================
-# PAGE 6: REJECTION ASSISTANT (kept from original)
+# PAGE 6: REJECTION ASSISTANT
 # ===========================================================================
 elif page == "🔍 Rejection Assistant":
     st.markdown("""
     <div class="main-header">
         <h1>🔍 Rejection Assistant</h1>
-        <p>Interpret rejection codes and get actionable next steps</p>
+        <p>مساعد تفسير أكواد الرفض وصياغة خطابات الموافقة المسبقة</p>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["🔎 Look Up Code", "📝 Generate PA Letter"])
+    tab1, tab2 = st.tabs(["🔎 البحث في كود الرفض", "📝 إنشاء خطاب موافقة مسبقة (PA Letter)"])
 
     with tab1:
         col_input, col_result = st.columns([1, 1.5])
         with col_input:
             all_codes = get_all_codes()
-            query_type = st.radio("Search by:", ["Rejection Code", "Description"], horizontal=True)
+            query_type = st.radio("البحث حسب:", ["Rejection Code", "Description"], horizontal=True)
             if query_type == "Rejection Code":
                 code_options = [f"{c['code']} — {c['raw_message']}" for c in all_codes]
-                selected = st.selectbox("Select code", code_options)
+                selected = st.selectbox("اختر الكود", code_options)
                 query = selected.split(" — ")[0] if selected else ""
             else:
-                query = st.text_input("Describe the rejection", placeholder="e.g., step therapy...")
-            search_btn = st.button("🔍 Interpret", type="primary", use_container_width=True)
+                query = st.text_input("وصف سبب الرفض", placeholder="مثال: step therapy...")
+            search_btn = st.button("🔍 تفسير الكود", type="primary", use_container_width=True)
 
         with col_result:
             if search_btn and query:
                 result = interpret_rejection(query)
                 if result["found"]:
                     if result["match_type"] == "fuzzy":
-                        st.info(f"🔗 Fuzzy match ({result['match_confidence']:.0%})")
+                        st.info(f"🔗 مطابقة تقريبية ({result['match_confidence']:.0%})")
                     st.markdown(f'<div class="kpi-card" style="text-align:left;margin-bottom:1rem;"><div style="font-size:1.4rem;font-weight:700;color:#ef4444;">{result["code"]}</div><div style="color:rgba(250,250,250,0.8);margin-top:0.3rem;">{result["raw_message"]}</div></div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="status-box">{result["plain_explanation"]}</div>', unsafe_allow_html=True)
-                    st.markdown('<div class="section-header">✅ Action Checklist</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="section-header">✅ خطوات العمل المطلوبة</div>', unsafe_allow_html=True)
                     for i, action in enumerate(result["action_checklist"], 1):
                         st.checkbox(action, key=f"act_{i}_{result['code']}")
                 else:
-                    st.error(result.get("error", "No match found."))
+                    st.error(result.get("error", "لم يتم العثور على الكود."))
 
         st.markdown("---")
         ref_data = [{"Code": c["code"], "Message": c["raw_message"], "Explanation": c["plain_explanation"]} for c in all_codes]
@@ -750,10 +693,10 @@ elif page == "🔍 Rejection Assistant":
             pa_rejection = st.selectbox("Rejection Code", [c["code"] for c in all_codes], key="pa_reject")
             pa_prior = st.checkbox("Prior drug tried", key="pa_pt"); pa_lab = st.checkbox("Lab results available", key="pa_la")
 
-        if st.button("📄 Generate Letter", type="primary", use_container_width=True):
+        if st.button("📄 توليد الخطاب", type="primary", use_container_width=True):
             letter = generate_pa_letter(pa_age, pa_drug, pa_insurance, pa_diag, pa_rejection, pa_prior, pa_lab)
             st.markdown(f'<div class="pa-letter">{letter}</div>', unsafe_allow_html=True)
-            st.download_button("⬇️ Download (.txt)", letter, file_name=f"PA_{pa_drug}_{pa_insurance}.txt")
+            st.download_button("⬇️ تحميل الخطاب (.txt)", letter, file_name=f"PA_{pa_drug}_{pa_insurance}.txt")
 
 
 # ===========================================================================
@@ -763,27 +706,27 @@ elif page == "🧪 Model Performance":
     st.markdown("""
     <div class="main-header">
         <h1>🧪 Model Performance</h1>
-        <p>ML model evaluation metrics for academic validation</p>
+        <p>مؤشرات وتقييم أداء نموذج التنبؤ لأغراض التقييم الأكاديمي</p>
     </div>
     """, unsafe_allow_html=True)
 
     metadata = load_model_metadata()
     if metadata is None:
-        st.error("⚠️ Model not trained yet. Run `python models/train_model.py` first."); st.stop()
+        st.error("⚠️ Model not trained yet."); st.stop()
 
     col_m1, col_m2, col_m3 = st.columns(3)
     with col_m1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{metadata["accuracy"]:.1%}</div><div class="kpi-label">Accuracy</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{metadata["accuracy"]:.1%}</div><div class="kpi-label">دقة النموذج Accuracy</div></div>', unsafe_allow_html=True)
     with col_m2:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{metadata["f1_score"]:.1%}</div><div class="kpi-label">F1 Score</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{metadata["f1_score"]:.1%}</div><div class="kpi-label">معامل F1-Score</div></div>', unsafe_allow_html=True)
     with col_m3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="font-size:1.5rem;">{metadata["model_name"]}</div><div class="kpi-label">Best Model</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value" style="font-size:1.3rem;">{metadata["model_name"]}</div><div class="kpi-label">خوارزمية النموذج</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     col_cm, col_fi = st.columns(2)
     with col_cm:
-        st.markdown('<div class="section-header">Confusion Matrix</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Confusion Matrix (مصفوفة الإرباك)</div>', unsafe_allow_html=True)
         cm = np.array(metadata["confusion_matrix"])
         fig_cm = go.Figure(data=go.Heatmap(z=cm, x=["Pred Rejected","Pred Approved"], y=["Actual Rejected","Actual Approved"],
             text=cm, texttemplate="%{text}", textfont={"size":20,"color":"white"},
@@ -793,7 +736,7 @@ elif page == "🧪 Model Performance":
         st.plotly_chart(fig_cm, use_container_width=True)
 
     with col_fi:
-        st.markdown('<div class="section-header">Feature Importance</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Feature Importance (أهمية المتغيرات)</div>', unsafe_allow_html=True)
         fi_df = pd.DataFrame(sorted(metadata["feature_importance"].items(), key=lambda x: x[1], reverse=True), columns=["Feature","Importance"])
         fig_fi = px.bar(fi_df, x="Importance", y="Feature", orientation="h",
             color="Importance", color_continuous_scale=["#1a1f2e","#00D4AA"])
@@ -802,7 +745,7 @@ elif page == "🧪 Model Performance":
             showlegend=False, coloraxis_showscale=False)
         st.plotly_chart(fig_fi, use_container_width=True)
 
-    st.markdown('<div class="section-header">Classification Report</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Classification Report التفصيلي</div>', unsafe_allow_html=True)
     report = metadata["classification_report"]
     report_data = []
     for label in ["Rejected (0)", "Approved (1)"]:
