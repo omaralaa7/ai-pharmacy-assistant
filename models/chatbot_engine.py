@@ -150,34 +150,47 @@ def _build_tfidf_index():
 
 
 def _fuzzy_match_company(query):
-    """Find the best-matching company name using fuzzy matching."""
+    """Find the best-matching company name using sub-token and fuzzy matching."""
     _load_kb()
     query_norm = normalize_arabic(query)
+    words_in_query = set(re.findall(r"\w+", query_norm))
 
     best_match = None
     best_score = 0.0
 
+    ignore_words = {"شركة", "شركه", "تأمين", "تأمين", "هيئة", "هيئة", "رعاية", "رعايه", "إدارة", "ادارة"}
+
     for company_key, company_data in _knowledge_base.items():
-        # Check against all name variants
-        candidates = [
-            normalize_arabic(company_data["company_name"]),
-            normalize_arabic(company_data.get("company_name_ar", "")),
-            normalize_arabic(company_data.get("company_name_en", "")),
+        name_parts = [
+            company_data.get("company_name", ""),
+            company_data.get("company_name_ar", ""),
+            company_data.get("company_name_en", ""),
         ]
 
-        for candidate in candidates:
-            if not candidate:
+        sub_candidates = []
+        for p in name_parts:
+            if not p:
+                continue
+            sub_candidates.append(p)
+            sub_candidates.extend(re.split(r"[-/\s]+", p))
+
+        for cand in sub_candidates:
+            cand_norm = normalize_arabic(cand.strip())
+            if not cand_norm or len(cand_norm) < 2 or cand_norm in ignore_words:
                 continue
 
-            # Exact substring match gets high bonus
-            if query_norm in candidate or candidate in query_norm:
-                score = 0.9
+            if cand_norm in query_norm:
+                score = 0.95 if len(cand_norm) >= 3 else 0.85
+                if score > best_score:
+                    best_score = score
+                    best_match = company_key
             else:
-                score = SequenceMatcher(None, query_norm, candidate).ratio()
-
-            if score > best_score:
-                best_score = score
-                best_match = company_key
+                for q_word in words_in_query:
+                    if len(q_word) >= 3:
+                        ratio = SequenceMatcher(None, q_word, cand_norm).ratio()
+                        if ratio > 0.80 and ratio > best_score:
+                            best_score = ratio
+                            best_match = company_key
 
     return best_match, best_score
 
@@ -292,11 +305,14 @@ def chat_query(user_question):
     # --- Step 2: Detect category ---
     category_match = _detect_category(query)
 
-    # --- Case A: Both company and category detected (direct lookup) ---
-    if company_match and company_score >= 0.65 and category_match:
+    # --- Case A: Company detected with high confidence ---
+    if company_match and company_score >= 0.65:
         company_data = _knowledge_base[company_match]
-        if category_match in company_data["policies"]:
-            policy = company_data["policies"][category_match]
+        policies = company_data.get("policies", {})
+
+        # Direct category match
+        if category_match and category_match in policies:
+            policy = policies[category_match]
             return {
                 "found": True,
                 "company_name": company_data["company_name"],
@@ -308,26 +324,54 @@ def chat_query(user_question):
                 "method": "direct" if company_score >= 0.8 else "fuzzy",
             }
 
-    # --- Case B: Company detected with high confidence but no category (show summary) ---
-    if company_match and company_score >= 0.70 and not category_match:
-        company_data = _knowledge_base[company_match]
+        # Category requested but not directly in policies -> check related fallback categories
+        if category_match:
+            related_map = {
+                "أقصى مدة للصرف": ["صلاحية النموذج", "الحد الأقصى"],
+                "الحد الأقصى": ["أقصى مدة للصرف", "التحمل"],
+                "صلاحية النموذج": ["أقصى مدة للصرف"],
+            }
+            fallback_category = None
+            if category_match in related_map:
+                for rel in related_map[category_match]:
+                    if rel in policies:
+                        fallback_category = rel
+                        break
+
+            if fallback_category:
+                policy = policies[fallback_category]
+                return {
+                    "found": True,
+                    "company_name": company_data["company_name"],
+                    "category": f"{category_match} ({fallback_category})",
+                    "category_en": policy.get("category_en", ""),
+                    "answer": policy.get("details", ""),
+                    "notes": f"ملاحظة: تم العثور على التفاصيل تحت بند '{fallback_category}' لشركة {company_data['company_name']}.",
+                    "confidence": min(company_score, 1.0),
+                    "method": "related_fallback",
+                }
+
+        # Company matched, but no specific category or category not listed -> return company policy summary
         summary_lines = []
-        for cat, pol in company_data["policies"].items():
-            detail_preview = pol.get("details", "")[:100]
-            summary_lines.append(f"• {cat}: {detail_preview}...")
+        for cat, pol in policies.items():
+            detail_preview = pol.get("details", "")[:120]
+            summary_lines.append(f"• {cat}: {detail_preview}")
+
+        cat_title = f"ملخص سياسات {company_data['company_name']}" if not category_match else f"سياسات {company_data['company_name']}"
+        note_text = f"ملاحظة: لم يتضمن السجل بنداً صريحاً باسم '{category_match}' لشركة {company_data['company_name']}، وإليك البنود المتاحة:" if category_match else f"تم العثور على {len(policies)} بنود سياسة."
 
         return {
             "found": True,
             "company_name": company_data["company_name"],
-            "category": "ملخص السياسات",
+            "category": cat_title,
             "category_en": "Policy Summary",
             "answer": "\n\n".join(summary_lines),
-            "notes": f"تم العثور على {len(company_data['policies'])} بنود سياسة. اسأل عن بند محدد للحصول على التفاصيل الكاملة.",
+            "notes": note_text,
             "confidence": company_score,
-            "method": "direct" if company_score >= 0.8 else "fuzzy",
+            "method": "company_summary",
         }
 
-    # --- Case C: Category detected but no company match ---
+    # --- Case B: Category detected but no company match ---
     if category_match and (not company_match or company_score < 0.65):
         return {
             "found": False,
